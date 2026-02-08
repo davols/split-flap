@@ -9,7 +9,7 @@ const uint8_t calOffsetUnit[] = {87, 62, 77, 65, 89, 104, 107, 82, 95, 97, 90, 5
 const float FlapStep[] = {2038.0/45, 2038.0/45, 2038.0/45, 2050.0/45, 2049.0/45, 2049.0/45, 2049.0/45, 2038.0/45, 2051.0/45, 2051.2/45, 2049.0/45, 2038.0/45}; // stepper motor steps per rotation per flap, for each unit motor
 
 // The following are hardware related and won't change unless PCB is changed. Note: Units are numbered from left to right 0 - 11.
-const uint8_t unitStepPin[] =  {14,13,5,4,18,17,16,15,26,25,23,19};
+const uint8_t unitStepPin[] =  {14,13,17,2,5,16,4,19,26,25,23,18};
 const uint8_t UnitEnablePin[] = {3,2,1,0,7,6,5,4,11,10,9,8};
 const char sensorPort[] = {'A','A','A','A','B','B','A','A','B','B','B','B'}; //Maps unit sensors 0 - 11 to the MCP23017 ports A or B
 const uint8_t sensorPortBit[] = {0b00001000,0b00000100,0b00000010,0b00000001,0b00000010,0b00000001,0b00100000,0b00010000,0b00100000,0b00010000,0b00001000,0b00000100}; //Maps unit sensors 0 - 11 to the bit of the MCP23017 port
