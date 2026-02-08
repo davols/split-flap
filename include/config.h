@@ -3,8 +3,8 @@
 #define WIFI_SSID ""
 #define WIFI_PWD ""
 
-#define MY_NTP_SERVER "au.pool.ntp.org" // Set the best fitting NTP server (pool) for your location
-#define MY_TZ "AEST-10AEDT,M10.1.0,M4.1.0/3" // Set your time zone from https://github.com/nayarsystems/posix_tz_db/blob/master/zones.csv
+#define MY_NTP_SERVER "no.pool.ntp.org" // Set the best fitting NTP server (pool) for your location
+#define MY_TZ "CET-1CEST,M3.5.0,M10.5.0/3" // Set your time zone from https://github.com/nayarsystems/posix_tz_db/blob/master/zones.csv
 
 #define WORDNIKAPIKEY "" // Insert your private key from https://developer.wordnik.com/
 #define MINWORDLEN 9 // Specify minimum word length to fetch from Wordnik
