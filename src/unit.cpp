@@ -174,16 +174,25 @@ boolean Unit::checkIfRunning() {
 
 boolean Unit::updateHallValue(uint8_t updatedHallValue) {
   uint32_t timedelta;
+  const uint16_t hallGlitchThresholdMs = 100;
   if (updatedHallValue != currentHallValue) {
     timedelta = millis() - lastHallUpdateTime;
 
     currentHallValue = updatedHallValue;
     lastHallUpdateTime = millis();
+    debugf("HALL,%02d,%s,delta=%lu,cal=%d\n",
+      unitNum,
+      (currentHallValue == 0) ? "TRIGGERED" : "CLEARED",
+      (unsigned long)timedelta,
+      calibrationStarted ? 1 : 0);
     // debugf("Unit: %d, Hall: %d, Delta: %d\n", unitNum, currentHallValue, timedelta);
     // debugf("Hall,%02d,%d,%lu,%d,%d,%d,'%c'\n", unitNum, currentHallValue, timedelta, preInitialise, calibrationStarted, calibrationComplete, pendingLetter);
 
-    // If occasional glitch occurrs, start calibration again
-    if (timedelta <= 100) {
+    // Ignore short Hall bounces while calibrating; otherwise request recalibration.
+    if (timedelta <= hallGlitchThresholdMs) {
+      if (calibrationStarted) {
+        return true;
+      }
       debugf(TXT_RED "GLITCH,%02d,%d,%d,'%c'\n" TXT_RST, unitNum, updatedHallValue, timedelta, destinationLetter);
       return false;
     }

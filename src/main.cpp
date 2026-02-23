@@ -33,6 +33,9 @@ void IRAM_ATTR sensor_ISR();
 void updateHallSensors();
 void displayString(String display);
 boolean diplayStillMoving();
+#if DEBUG == 1
+void processSerialCommands();
+#endif
 // void intToBinary(int num, char* binaryStr);
 // void debugUnitFlags(String prefix);
 
@@ -60,6 +63,9 @@ String localIP;
 FastAccelStepperEngine engine;
 extern WebServer server;
 uint8_t word_updates_per_hour = WORDUPDATESPERHOUR; //store config value in variable to prevent div by zero compiler warnings
+#if DEBUG == 1
+bool unitDisabled[UNITCOUNT] = {false};
+#endif
 
 // RTC memory structure - for persisting data between reboots
 typedef struct {
@@ -133,10 +139,31 @@ void setup() {
   debug(localIP);
   debugln(TXT_RST);
 
+  bool ntpDnsResolved = false;
+  IPAddress ntpResolvedIP;
+  if (WiFi.hostByName(MY_NTP_SERVER, ntpResolvedIP) == 1) {
+    ntpDnsResolved = true;
+  } else {
+    IPAddress fallbackDNS1(1, 1, 1, 1);
+    IPAddress fallbackDNS2(8, 8, 8, 8);
+    WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, fallbackDNS1, fallbackDNS2);
+
+    if (WiFi.hostByName(MY_NTP_SERVER, ntpResolvedIP) == 1) {
+      ntpDnsResolved = true;
+    }
+  }
+
   disableCertificates(); 
 
   // Lookup NTP time
-  configTzTime(MY_TZ, MY_NTP_SERVER);
+  if (ntpDnsResolved) {
+    configTzTime(MY_TZ, MY_NTP_SERVER, "time.google.com", "time.cloudflare.com");
+  } else {
+    // DNS-free fallback (NTP over IP literals) for restricted networks.
+    configTime(0, 0, "129.6.15.28", "216.239.35.0", "162.159.200.1");
+    setenv("TZ", MY_TZ, 1);
+    tzset();
+  }
   now = time(nullptr); //start time sync in background
 
   // Set up REST API
@@ -174,9 +201,6 @@ void setup() {
 }
 
 void loop() {
-  String test_command;
-  uint16_t test_num;
-
   ////////////////////////
   // HIGH LEVEL EVENT LOOP
   ////////////////////////
@@ -190,8 +214,18 @@ void loop() {
   // Calibrate any units that require it
   recalibrate_units();
 
+#if DEBUG == 1
+  // Always handle serial commands, even while motors are moving/calibrating.
+  processSerialCommands();
+#endif
+
   // Move any units pending due to drum passing origin (after they have recalibrated)
   for (uint8_t unit = 0; unit < UNITCOUNT; unit++) {
+#if DEBUG == 1
+    if (unitDisabled[unit]) {
+      continue;
+    }
+#endif
     if (splitFlap[unit]->pendingLetter > 0 && splitFlap[unit]->calibrationComplete) {
       splitFlap[unit]->moveSteppertoLetter(splitFlap[unit]->pendingLetter);
     }
@@ -265,55 +299,103 @@ void loop() {
     }
     //If display has been moving for more than 20 seconds, must be an error condition
     else if (millis() - displayLastStoppedMillis > 20000) {
+#if DEBUG == 1
+      static bool movingWatchdogWarned = false;
+      if (!movingWatchdogWarned) {
+        debugln(TXT_RED "Moving > 20 secs - watchdog suppressed in DEBUG mode" TXT_RST);
+        movingWatchdogWarned = true;
+      }
+#else
       debugln(TXT_RED "Moving > 20 secs - RESTARTING!!!" TXT_RST);
       nvmem.magic = RTC_MAGIC;
       strncpy(nvmem.previous_display,save_display,13);
       nvmem.reboot_count = reboot_count;
       ESP.restart();
+#endif
     }
 
-    // Handle interactive serial commands over USB (used for debugging)
+  }
+
+}
+
 #if DEBUG == 1
-    if (Serial.available()) {
-      test_command = Serial.readStringUntil('\n');
-      test_command.replace("\r","");
+void processSerialCommands() {
+  static String commandBuffer = "";
+
+  while (Serial.available() > 0) {
+    const char ch = (char)Serial.read();
+
+    if (ch == '\n' || ch == '\r') {
+      if (commandBuffer.length() == 0) {
+        continue;
+      }
+
+      String test_command = commandBuffer;
+      uint16_t test_num;
+      commandBuffer = "";
+
+      test_command.trim();
       test_command.toUpperCase();
+      debugf("RX:[%s]\n", test_command.c_str());
 
       // if only return was pressed then repeat last command
-      if (test_command.length() == 0) { 
+      if (test_command.length() == 0) {
         test_command = test_command_previous;
+        debugf("RX repeat:[%s]\n", test_command.c_str());
+      }
+      if (test_command.length() == 0) {
+        continue;
       }
 
       if (test_command.charAt(0) == char(92)) { //backslash
         print_test_menu();
       }
       else if (test_command.charAt(0) == ']') {
-        test_num = test_command.substring(1,3).toInt();
-        if (test_num >= 0) {
+        test_num = test_command.substring(1).toInt();
+        if (test_num < UNITCOUNT) {
           active_menu_unit = test_num;
           debugf("Active unit set to %d\n", active_menu_unit);
+        } else {
+          debugf(TXT_RED "Invalid unit index: %d (valid range 0-%d)\n" TXT_RST, test_num, UNITCOUNT - 1);
         }
       }
       else if (test_command.charAt(0) == '>') {
-        test_num = test_command.substring(1,5).toInt();
+        test_num = test_command.substring(1).toInt();
         if (test_num > 0) {
+#if DEBUG == 1
+          if (unitDisabled[active_menu_unit]) {
+            debugf(TXT_RED "Unit %d is disabled (calibration failed)\n" TXT_RST, active_menu_unit);
+            continue;
+          }
+#endif
           debugf("Move %d flaps\n", test_num);
           splitFlap[active_menu_unit]->moveStepperbyFlap(test_num);
         }
       }
       else if (test_command.charAt(0) == '}') {
-        test_num = test_command.substring(1,5).toInt();
+        test_num = test_command.substring(1).toInt();
         if (test_num > 0) {
             debugf("Move all flaps by %d\n", test_num);
             for (uint8_t unit = 0; unit < UNITCOUNT; unit++) {
+#if DEBUG == 1
+              if (unitDisabled[unit]) {
+                continue;
+              }
+#endif
               splitFlap[unit]->moveStepperbyFlap(test_num);
             }
         }
       }
       // Move stepper by a raw number of steps
       else if (test_command.charAt(0) == '~') {
-        test_num = test_command.substring(1,5).toInt();
+        test_num = test_command.substring(1).toInt();
         if (test_num > 0) {
+#if DEBUG == 1
+          if (unitDisabled[active_menu_unit]) {
+            debugf(TXT_RED "Unit %d is disabled (calibration failed)\n" TXT_RST, active_menu_unit);
+            continue;
+          }
+#endif
           debugf("Move %d steps\n", test_num);
           splitFlap[active_menu_unit]->moveStepperbyStep(test_num);
         }
@@ -325,7 +407,7 @@ void loop() {
         String word = wordOfTheDay();
         debugf("Word, %02d:%02d, [%s]\n", timeinfo.tm_hour, timeinfo.tm_min, word);
         displayString(word);
-      }   
+      }
       else if (test_command.charAt(0) == '+') {
         String thisSeq = "@@@@@@@@@@@@";
         // String thisSeq = "       @ ";
@@ -335,22 +417,27 @@ void loop() {
         }
         thisSeq.replace("@",String(letters[charSeq]));
         displayString(thisSeq);
-      }  
+      }
       else if (test_command.charAt(0) == '<') {
         debugln("Put ESP to sleep until power reset");
         esp_deep_sleep_start();
-      }      
+      }
       else {
-        test_command.toUpperCase();
-        debugf("Display %s\n", test_command);
+        debugf("Display %s\n", test_command.c_str());
         displayString(test_command);
       }
-      test_command_previous = test_command;
-    }
-#endif
-  }
 
+      test_command_previous = test_command;
+      continue;
+    }
+
+    commandBuffer += ch;
+    if (commandBuffer.length() > 64) {
+      commandBuffer.remove(0, commandBuffer.length() - 64);
+    }
+  }
 }
+#endif
 
 void print_test_menu() {
   getNTP(now, timeinfo);
@@ -389,6 +476,11 @@ void recalibrate_units() {
 
   unitsCalibrating = 0;
   for (uint8_t unit = 0; unit < UNITCOUNT; unit++) {
+#if DEBUG == 1
+    if (unitDisabled[unit]) {
+      continue;
+    }
+#endif
     if (!splitFlap[unit]->calibrationComplete) {
       if (!splitFlap[unit]->calibrationStarted) {
         splitFlap[unit]->calibrateStart();
@@ -401,11 +493,19 @@ void recalibrate_units() {
         }
         else if (calibrationResult < 0) {
           debugf("Calibration failed for unit %d\n", unit);
+#if DEBUG == 1
+          unitDisabled[unit] = true;
+          splitFlap[unit]->calibrationComplete = true;
+          splitFlap[unit]->calibrationStarted = false;
+          splitFlap[unit]->pendingLetter = 0;
+          debugf(TXT_RED "Unit %d disabled in DEBUG mode\n" TXT_RST, unit);
+#else
           debugln(TXT_RED "RESTARTING!!!" TXT_RST);
           nvmem.magic = RTC_MAGIC;
           strncpy(nvmem.previous_display,save_display,13);
           nvmem.reboot_count = reboot_count;
           ESP.restart();
+#endif
         }
       }
     }
@@ -424,6 +524,11 @@ void updateHallSensors() {
   uint8_t sensor_port_current_b = mcp_sensor.readPort(MCP23017Port::B);
 
   for (uint8_t unit = 0; unit < UNITCOUNT; unit++) {
+#if DEBUG == 1
+    if (unitDisabled[unit]) {
+      continue;
+    }
+#endif
     if (sensorPort[unit] == 'A') {
         newvalue = ((~sensor_port_current_a & sensorPortBit[unit]) == 0);
         if (!splitFlap[unit]->updateHallValue(newvalue)) {
@@ -457,6 +562,11 @@ void displayString(String display) {
     test_length = UNITCOUNT;
   }
   for (uint8_t char_pos = 0; char_pos < test_length; char_pos++) {
+#if DEBUG == 1
+    if (unitDisabled[char_pos]) {
+      continue;
+    }
+#endif
     display_char = display.charAt(char_pos);
     splitFlap[char_pos]->moveSteppertoLetter(display_char);
   }
@@ -466,6 +576,11 @@ boolean diplayStillMoving () {
   boolean display_busy = true;
   display_busy = false;
   for (uint8_t unit = 0; unit < UNITCOUNT; unit++) {
+#if DEBUG == 1
+    if (unitDisabled[unit]) {
+      continue;
+    }
+#endif
     if (splitFlap[unit]->checkIfRunning()) {
       display_busy = true;
     }

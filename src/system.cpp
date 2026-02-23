@@ -25,16 +25,16 @@ void disableCertificates() {
 }
 
 boolean synchroniseWith_NTP_Time(time_t &now, tm &timeinfo){
-  uint8_t timeout = 0;
+  uint16_t timeout = 0;
+  const uint16_t maxLoops = 300; // 30 seconds total @ 100ms interval
   
-  // debug("Setting time using SNTP");
-  while (now < NTP_MIN_VALID_EPOCH && ++timeout < 50) {
+  debug("Setting time using SNTP");
+  while (now < NTP_MIN_VALID_EPOCH && ++timeout < maxLoops) {
     delay(100);
-    // debug(".");
     now = time(nullptr);
   }
 
-  if (timeout >= 50) {
+  if (timeout >= maxLoops) {
     return false;
   }
 
@@ -49,10 +49,9 @@ boolean getNTP(time_t &now, tm &timeinfo) {
     debugln("Error getting time");
     return false;
   }
-  else {
-    time(&now); // read the current time
-    localtime_r(&now, &timeinfo); // update the structure tm with the local current time
-  }
+
+  time(&now); // read the current time
+  localtime_r(&now, &timeinfo); // update the structure tm with the local current time
   return true;
 }
 
