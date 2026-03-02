@@ -180,11 +180,6 @@ boolean Unit::updateHallValue(uint8_t updatedHallValue) {
 
     currentHallValue = updatedHallValue;
     lastHallUpdateTime = millis();
-    debugf("HALL,%02d,%s,delta=%lu,cal=%d\n",
-      unitNum,
-      (currentHallValue == 0) ? "TRIGGERED" : "CLEARED",
-      (unsigned long)timedelta,
-      calibrationStarted ? 1 : 0);
     // debugf("Unit: %d, Hall: %d, Delta: %d\n", unitNum, currentHallValue, timedelta);
     // debugf("Hall,%02d,%d,%lu,%d,%d,%d,'%c'\n", unitNum, currentHallValue, timedelta, preInitialise, calibrationStarted, calibrationComplete, pendingLetter);
 

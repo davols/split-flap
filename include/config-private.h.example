@@ -1,0 +1,15 @@
+#pragma once
+
+// Local-only overrides for secrets and environment-specific settings.
+// Copy this file to include/config-private.h and update the values.
+// include/config-private.h is gitignored.
+
+#define WIFI_SSID "your-ssid"
+#define WIFI_PWD "your-password"
+
+#define MY_NTP_SERVER "pool.ntp.org" // Set best local NTP server pool
+#define MY_TZ "UTC0" // https://github.com/nayarsystems/posix_tz_db/blob/master/zones.csv
+
+#define WORDNIKAPIKEY "" // Insert private key from https://developer.wordnik.com/
+#define MINWORDLEN 9
+#define WORDUPDATESPERHOUR 0

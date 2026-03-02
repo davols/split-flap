@@ -16,6 +16,7 @@
 #include <Wire.h>
 #include <MCP23017.h>
 #include <time.h>
+#include <esp_system.h>
 #include "system.h"
 #include "unit.h"
 #if __has_include(<config-private.h>)
@@ -33,6 +34,9 @@ void IRAM_ATTR sensor_ISR();
 void updateHallSensors();
 void displayString(String display);
 boolean diplayStillMoving();
+void logResetDiagnostics();
+void printResetDiagnostics();
+const char* resetReasonToString(esp_reset_reason_t reason);
 #if DEBUG == 1
 void processSerialCommands();
 #endif
@@ -70,10 +74,17 @@ bool unitDisabled[UNITCOUNT] = {false};
 // RTC memory structure - for persisting data between reboots
 typedef struct {
   uint32_t magic;
+  uint8_t version;
   char previous_display[13];
   uint8_t reboot_count;
+  uint32_t boot_count;
+  uint32_t brownout_count;
+  uint8_t last_reset_reason;
 } RTC;
 RTC_NOINIT_ATTR RTC nvmem;
+
+static constexpr uint8_t RTC_VERSION = 2;
+esp_reset_reason_t bootResetReason = ESP_RST_UNKNOWN;
 
 
 // SETUP
@@ -82,6 +93,8 @@ void setup() {
 #if DEBUG == 1
   Serial.begin(115200);
 #endif
+
+  logResetDiagnostics();
   
   WiFi.begin(ssid, password);
   debugln(TXT_BLUE "Starting" TXT_RST);
@@ -173,15 +186,11 @@ void setup() {
   updateHallSensors();
 
   // Read any previous display before last reboot
-  if (nvmem.magic == RTC_MAGIC) {
-    strncpy(previous_display, nvmem.previous_display, 13);
-    previous_display[12]='\0';
-    reboot_count = nvmem.reboot_count;
+  strncpy(previous_display, nvmem.previous_display, 13);
+  previous_display[12] = '\0';
+  reboot_count = nvmem.reboot_count;
+  if (previous_display[0] != '\0') {
     debugf(TXT_YELLOW "previous_display: [%s], reboots: %d\n" TXT_RST, previous_display, reboot_count);
-  }
-  else {
-    previous_display[0] = '\0';
-    reboot_count = 0;
   }
 
   delay(101); // Delay to avoid initially false triggering the glitch detection
@@ -336,12 +345,10 @@ void processSerialCommands() {
 
       test_command.trim();
       test_command.toUpperCase();
-      debugf("RX:[%s]\n", test_command.c_str());
 
       // if only return was pressed then repeat last command
       if (test_command.length() == 0) {
         test_command = test_command_previous;
-        debugf("RX repeat:[%s]\n", test_command.c_str());
       }
       if (test_command.length() == 0) {
         continue;
@@ -403,6 +410,9 @@ void processSerialCommands() {
       else if (test_command.charAt(0) == '|') {
         ESP.restart();
       }
+      else if (test_command.charAt(0) == '!') {
+        printResetDiagnostics();
+      }
       else if (test_command.charAt(0) == '%') {
         String word = wordOfTheDay();
         debugf("Word, %02d:%02d, [%s]\n", timeinfo.tm_hour, timeinfo.tm_min, word);
@@ -437,6 +447,7 @@ void processSerialCommands() {
     }
   }
 }
+
 #endif
 
 void print_test_menu() {
@@ -452,6 +463,7 @@ void print_test_menu() {
   debugln(">   : Move forward number of flaps");
   debugln("~   : Move forward number steps");
   debugln("|   : Reset Display");
+  debugln("!   : Print reset diagnostics");
   debugln("%   : Display a random word");
   debugln("+   : Test: countdown of all flaps");
   debugln("<   : Idle");
@@ -586,6 +598,64 @@ boolean diplayStillMoving () {
     }
   }
   return display_busy;
+}
+
+const char* resetReasonToString(esp_reset_reason_t reason) {
+  switch (reason) {
+    case ESP_RST_UNKNOWN:   return "UNKNOWN";
+    case ESP_RST_POWERON:   return "POWERON";
+    case ESP_RST_EXT:       return "EXTERNAL";
+    case ESP_RST_SW:        return "SOFTWARE";
+    case ESP_RST_PANIC:     return "PANIC";
+    case ESP_RST_INT_WDT:   return "INT_WDT";
+    case ESP_RST_TASK_WDT:  return "TASK_WDT";
+    case ESP_RST_WDT:       return "WDT";
+    case ESP_RST_DEEPSLEEP: return "DEEPSLEEP_WAKE";
+    case ESP_RST_BROWNOUT:  return "BROWNOUT";
+    case ESP_RST_SDIO:      return "SDIO";
+    default:                return "UNMAPPED";
+  }
+}
+
+void logResetDiagnostics() {
+  bootResetReason = esp_reset_reason();
+
+  if (nvmem.magic != RTC_MAGIC || nvmem.version != RTC_VERSION) {
+    memset(&nvmem, 0, sizeof(nvmem));
+    nvmem.magic = RTC_MAGIC;
+    nvmem.version = RTC_VERSION;
+  }
+
+  nvmem.boot_count++;
+  nvmem.last_reset_reason = static_cast<uint8_t>(bootResetReason);
+  if (bootResetReason == ESP_RST_BROWNOUT) {
+    nvmem.brownout_count++;
+  }
+
+  debugf(
+    TXT_YELLOW "Reset reason: %s (%d), boot #%lu, brownouts=%lu\n" TXT_RST,
+    resetReasonToString(bootResetReason),
+    static_cast<int>(bootResetReason),
+    static_cast<unsigned long>(nvmem.boot_count),
+    static_cast<unsigned long>(nvmem.brownout_count)
+  );
+
+  if (bootResetReason == ESP_RST_BROWNOUT) {
+    debugln(TXT_RED "Brownout detected on previous reset - check 5V rail and motor startup current spikes" TXT_RST);
+  }
+}
+
+void printResetDiagnostics() {
+  const esp_reset_reason_t lastReason = static_cast<esp_reset_reason_t>(nvmem.last_reset_reason);
+  debugf(
+    "Reset diagnostics: current=%s (%d), last=%s (%d), boots=%lu, brownouts=%lu\n",
+    resetReasonToString(bootResetReason),
+    static_cast<int>(bootResetReason),
+    resetReasonToString(lastReason),
+    static_cast<int>(lastReason),
+    static_cast<unsigned long>(nvmem.boot_count),
+    static_cast<unsigned long>(nvmem.brownout_count)
+  );
 }
 
 // void intToBinary(int num, char* binaryStr) {

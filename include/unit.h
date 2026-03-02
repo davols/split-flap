@@ -1,12 +1,12 @@
 #pragma once
 
 #include <Arduino.h>
-#include "FastAccelStepper.h"
+#include "FastAccelStepper.h" 
 #include "debug.h"
 
 // Customise below for each unit for your build. (Units are numbered left to right 0 - 11)
-const uint8_t calOffsetUnit[] = {87, 62, 77, 65, 89, 104, 107, 82, 95, 97, 90, 55};
-const float FlapStep[] = {2038.0/45, 2038.0/45, 2038.0/45, 2050.0/45, 2049.0/45, 2049.0/45, 2049.0/45, 2038.0/45, 2051.0/45, 2051.2/45, 2049.0/45, 2038.0/45}; // stepper motor steps per rotation per flap, for each unit motor
+const uint8_t calOffsetUnit[] = {87, 53, 70, 70, 85, 104, 72, 40, 95, 90, 90, 55};
+const float FlapStep[] = {2038.0/45, 2038.0/45, 2038.0/45, 2050.0/45, 2049.0/45, 2049.0/45, 2049.0/45, 2049.0/45, 2051.0/45, 2051.2/45, 2049.0/45, 2038.0/45}; // stepper motor steps per rotation per flap, for each unit motor
 
 // The following are hardware related and won't change unless PCB is changed. Note: Units are numbered from left to right 0 - 11.
 const uint8_t unitStepPin[] =  {14,13,17,2,5,16,4,19,26,25,23,18};

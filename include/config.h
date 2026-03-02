@@ -1,7 +1,7 @@
 #pragma once
 
-#define WIFI_SSID ""
-#define WIFI_PWD ""
+#define WIFI_SSID "REPLACE_ME"
+#define WIFI_PWD "REPLACE_ME"
 
 #define MY_NTP_SERVER "pool.ntp.org" // Set the best fitting NTP server (pool) for your location
 #define MY_TZ "CET-1CEST,M3.5.0,M10.5.0/3" // Set your time zone from https://github.com/nayarsystems/posix_tz_db/blob/master/zones.csv
