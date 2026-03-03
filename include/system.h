@@ -13,7 +13,7 @@
 #include <ESPmDNS.h>
 
 // Specify number of Units (characters) in the display (4 - 12)
-#define UNITCOUNT 10
+#define UNITCOUNT 11
 
 // Specify the network name of the display (useful if you have more than one display)
 #define NETWORKNAME "splitflap"
